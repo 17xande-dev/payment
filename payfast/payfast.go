@@ -56,6 +56,10 @@ const MinAmountCents = 500
 // would be absurd.
 const itemNameMaxLen = 100
 
+// optionalFieldMaxRunes is PayFast's character limit for item_description and
+// the custom fields.
+const optionalFieldMaxRunes = 255
+
 // DefaultAllowedCIDRs are PayFast's published source ranges for notifications,
 // as of 2026-08. They are a *default* and not a constant on purpose: PayFast has
 // changed them before, and the caller can configure the current ranges without
@@ -227,10 +231,12 @@ func (g *Gateway) CSP() payment.CSPOrigins {
 
 // Handover returns PayFast's process URL and the fields to post to it.
 //
-// The field order below is the order they are signed in and the order they must
-// be submitted in. Blank values are dropped entirely rather than submitted empty:
+// PayFast specifies the field order below for signing and submission. Blank
+// values are dropped entirely rather than submitted empty:
 // PayFast excludes blank fields when it verifies, so submitting one that was not
 // signed — or signing one that is not submitted — is a signature mismatch.
+// The item description and custom values are trimmed and capped at 255 runes.
+// A non-blank custom integer must be decimal digits with an optional sign.
 func (g *Gateway) Handover(r payment.Request) (payment.Handover, error) {
 	if r.Currency != Currency {
 		return payment.Handover{}, fmt.Errorf("%w, not %s", ErrCurrency, r.Currency)
@@ -262,6 +268,23 @@ func (g *Gateway) Handover(r payment.Request) (payment.Handover, error) {
 	add("m_payment_id", r.Reference)
 	add("amount", payment.FormatAmount(r.AmountCents))
 	add("item_name", truncate(r.ItemName, itemNameMaxLen))
+	add("item_description", truncateRunes(r.ItemDescription, optionalFieldMaxRunes))
+	for i, value := range r.CustomInt {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		name := fmt.Sprintf("custom_int%d", i+1)
+		if !isDecimalInteger(value) {
+			return payment.Handover{}, fmt.Errorf("payfast: %s must be a decimal integer", name)
+		}
+		add(name, truncateRunes(value, optionalFieldMaxRunes))
+	}
+	for i, value := range r.CustomStr {
+		if value = truncateRunes(value, optionalFieldMaxRunes); value != "" {
+			add(fmt.Sprintf("custom_str%d", i+1), value)
+		}
+	}
 
 	fields = append(fields, payment.Field{Name: "signature", Value: sign(fields, g.cfg.Passphrase)})
 	return payment.Handover{Kind: payment.HandoverPostForm, Action: g.processURL, Fields: fields}, nil
@@ -338,3 +361,28 @@ func truncate(s string, max int) string {
 }
 
 func isRuneStart(b byte) bool { return b&0xC0 != 0x80 }
+
+func truncateRunes(s string, max int) string {
+	s = strings.TrimSpace(s)
+	for i := range s {
+		if max == 0 {
+			return s[:i]
+		}
+		max--
+	}
+	return s
+}
+
+// Check the decimal spelling without imposing a machine-integer range. PayFast
+// carries the value as text, and its limit is a character count.
+func isDecimalInteger(s string) bool {
+	if s != "" && (s[0] == '+' || s[0] == '-') {
+		s = s[1:]
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return s != ""
+}

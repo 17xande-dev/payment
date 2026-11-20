@@ -3,6 +3,7 @@ package snapscan
 import (
 	"errors"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -35,6 +36,25 @@ func testRequest() payment.Request {
 		Currency:    "ZAR",
 		ItemName:    "Shopalot order 5F1E4A2C",
 		Email:       "buyer@example.com",
+	}
+}
+
+func TestHandover_IgnoresOptionalDescriptionAndCustomFields(t *testing.T) {
+	g := testGateway(t, func(c *Config) { c.ValidationKey = "my-validation-key" })
+	req := testRequest()
+	want, err := g.Handover(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.ItemDescription = "Gift wrap"
+	req.CustomInt = [5]string{"0", "not an integer"}
+	req.CustomStr = [5]string{"web", 4: "last slot"}
+	got, err := g.Handover(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("optional fields changed the handover:\n got %+v\nwant %+v", got, want)
 	}
 }
 

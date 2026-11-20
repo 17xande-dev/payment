@@ -33,6 +33,11 @@ as hidden fields **in the order returned** and POST them to `Handover.Action`.
 Reordering fields changes the signature. Use matching sandbox credentials with
 `Sandbox: true`; a live integration also needs the matching live passphrase.
 
+PayFast specifies the transaction field order: `m_payment_id`, `amount`,
+`item_name`, `item_description`, `custom_int1` through `custom_int5`, then
+`custom_str1` through `custom_str5`. The handover signs and submits the fields
+in that order, omitting blank optional values and putting `signature` last.
+
 PayFast ITN verification checks the signature, the source-IP allowlist,
 PayFast's server-to-server confirmation, and the merchant ID. Pass a bare IP
 address in `payment.Notification.SourceIP`. The caller, not the library, decides
@@ -73,6 +78,15 @@ handover, err := gateway.Handover(payment.Request{
 Amounts are integer cents, not floats. `gateway.CSP()` gives the exact origins
 the browser needs for `form-action` or `img-src`; a `payment.Registry` combines
 these when more than one gateway is enabled.
+
+`payment.Request` also accepts `ItemDescription string` for a longer purchase
+description and `CustomInt [5]string` and `CustomStr [5]string` for pass-through
+values. For example, `CustomStr: [5]string{"web"}` sets PayFast's `custom_str1`.
+PayFast trims surrounding whitespace, omits blank values, and truncates these
+optional fields to 255 Unicode code points. A non-blank `CustomInt` entry must
+be a decimal integer (ASCII digits with an optional leading sign); `"0"` is
+sent, but `""` is omitted. SnapScan and other gateways with nowhere to put
+these fields ignore them.
 
 **A browser return proves nothing.** `ReturnURL` adds `?ref=<reference>` so the
 page can look up the right payment even if several tabs are open. It is neither

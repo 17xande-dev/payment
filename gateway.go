@@ -41,6 +41,16 @@ type Request struct {
 	ItemName string
 
 	NameFirst, NameLast, Email string
+
+	// ItemDescription is an optional longer description of the purchase.
+	// Gateways with nowhere to put it ignore it.
+	ItemDescription string
+	// CustomInt and CustomStr are optional pass-through values. Index 0 is
+	// field 1. Integer values are strings so an empty slot can be omitted
+	// without losing the ability to send zero. Gateways with no pass-through
+	// fields ignore both arrays.
+	CustomInt [5]string
+	CustomStr [5]string
 }
 
 // Field is one form field. Insertion order is preserved because PayFast's
