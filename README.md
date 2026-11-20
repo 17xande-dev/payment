@@ -4,6 +4,17 @@ PayFast and SnapScan for Go applications, behind one `payment.Gateway`
 interface. The module uses only the standard library. The caller owns payment
 records and decides what to do once a payment is confirmed.
 
+## v0.2.1
+
+Live PayFast's CSP declaration now includes the hosted checkout redirect.
+
+### Compatibility notes
+
+`CSPOrigins` now has a `FormActions` slice. It can no longer be compared with
+`==` or used as a map key. Use keyed literals rather than positional literals.
+If you call `Gateway.CSP()` directly, read `FormActions` as well as `FormAction`
+when building `form-action`. Callers using `Registry.CSP()` need no code change.
+
 ```go
 import (
     "os"
@@ -128,8 +139,10 @@ transaction ID, not the caller's reference.
 Implement `payment.Gateway` in a subpackage. Give it a stable name, validate
 configuration at startup, and keep its wire format and authentication inside
 the implementation. Report the hand-over shape and CSP origins the browser
-needs. Map provider-specific statuses to `payment.Outcome`, leaving unknown
-statuses pending, and distinguish temporarily unavailable verification from
+needs, including any additional form redirect origins in `CSPOrigins.FormActions`.
+Use scheme+host only, with no path, wildcard or semicolon. Map provider-specific
+statuses to `payment.Outcome`, leaving unknown statuses pending, and
+distinguish temporarily unavailable verification from
 rejection. Pin signature inputs and callback checks with fixed fixtures or local
 HTTP test servers.
 

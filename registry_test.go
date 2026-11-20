@@ -103,10 +103,10 @@ func TestRegistry_CSPDeduplicatesInFirstSeenOrder(t *testing.T) {
 		image  = "https://qr.example"
 	)
 	a := cspGateway{NewFakeNamed("a", "A"), CSPOrigins{
-		FormAction: first, FormActions: []string{shared, "", first, shared}, ImgSrc: image,
+		FormAction: " " + first + " ", FormActions: []string{shared, "", first, shared}, ImgSrc: " " + image + " ",
 	}}
 	b := cspGateway{NewFakeNamed("b", "B"), CSPOrigins{
-		FormAction: shared, FormActions: []string{last, first}, ImgSrc: image,
+		FormAction: shared, FormActions: []string{" https://a.example ", "  ", first}, ImgSrc: image,
 	}}
 	for _, tc := range []struct {
 		gateways []Gateway
@@ -123,6 +123,37 @@ func TestRegistry_CSPDeduplicatesInFirstSeenOrder(t *testing.T) {
 		if !slices.Equal(forms, tc.want) || !slices.Equal(images, []string{image}) {
 			t.Errorf("CSP = %q, %q; want %q, [%q]", forms, images, tc.want, image)
 		}
+	}
+}
+
+func TestRegistry_CSPResultsDoNotAliasGateway(t *testing.T) {
+	const (
+		form  = "https://checkout.example"
+		image = "https://qr.example"
+	)
+	extra := make([]string, 1, 3)
+	extra[0] = form
+	g := cspGateway{NewFakeNamed("checkout", "Checkout"), CSPOrigins{
+		FormActions: extra, ImgSrc: image,
+	}}
+	r, err := NewRegistry(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forms, images := r.CSP()
+	forms[0], images[0] = "https://changed.example", "https://changed.example"
+	forms = append(forms, "https://extra.example")
+	images = append(images, "https://extra.example")
+	formsAgain, imagesAgain := r.CSP()
+	if !slices.Equal(formsAgain, []string{form}) || !slices.Equal(imagesAgain, []string{image}) {
+		t.Errorf("second CSP = %q, %q after mutating results to %q, %q", formsAgain, imagesAgain, forms, images)
+	}
+	c := g.CSP()
+	if c.FormAction != "" || !slices.Equal(c.FormActions, []string{form}) || c.ImgSrc != image {
+		t.Errorf("gateway CSP changed: %+v", c)
+	}
+	if c.FormActions[:cap(c.FormActions)][1] != "" {
+		t.Error("appending to the result wrote into the gateway's spare capacity")
 	}
 }
 

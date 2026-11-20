@@ -100,8 +100,11 @@ func (h Handover) IsLink() bool { return h.Kind == HandoverLink }
 // It is part of the interface, rather than configuration somebody has to
 // remember to set, because a gateway whose origin is missing from the policy has
 // its hand-over refused by the browser — silently, with a correct-looking page
-// and a green test suite. Values are scheme+host with no paths or wildcards.
-// Empty means the gateway needs nothing from that field.
+// and a green test suite. Values must be scheme+host, with no path, wildcard
+// or semicolon. A CSP source with a path that does not end in a slash matches
+// only that exact path on the initial request, not every URL on the origin.
+// List the origins for both the initial request and any redirects, not endpoint
+// URLs. Empty means the gateway needs nothing from that field.
 type CSPOrigins struct {
 	// FormAction is the origin the handover form initially posts to.
 	FormAction string

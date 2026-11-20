@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // ErrUnknownGateway is returned by Registry.Lookup for a name no configured
@@ -66,10 +67,12 @@ func (r Registry) Len() int { return len(r.gateways) }
 func (r Registry) Default() Gateway { return r.gateways[0] }
 
 // CSP collects what every configured gateway needs the Content-Security-Policy
-// to permit. Each list contains non-empty origins in first-seen order.
+// to permit. It trims surrounding whitespace and returns the distinct non-empty
+// origins in first-seen order. Each result is independent of the gateway's data.
 // Within a gateway, FormAction comes before any additional FormActions.
 func (r Registry) CSP() (formActions, imgSources []string) {
 	add := func(origins []string, origin string) []string {
+		origin = strings.TrimSpace(origin)
 		if origin == "" || slices.Contains(origins, origin) {
 			return origins
 		}
