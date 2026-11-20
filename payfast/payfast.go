@@ -60,6 +60,9 @@ const itemNameMaxLen = 100
 // the custom fields.
 const optionalFieldMaxRunes = 255
 
+// Match CRLF first so an existing pair stays one line break.
+var formLineBreaks = strings.NewReplacer("\r\n", "\r\n", "\r", "\r\n", "\n", "\r\n")
+
 // DefaultAllowedCIDRs are PayFast's published source ranges for notifications,
 // as of 2026-08. They are a *default* and not a constant on purpose: PayFast has
 // changed them before, and the caller can configure the current ranges without
@@ -235,8 +238,9 @@ func (g *Gateway) CSP() payment.CSPOrigins {
 // values are dropped entirely rather than submitted empty:
 // PayFast excludes blank fields when it verifies, so submitting one that was not
 // signed — or signing one that is not submitted — is a signature mismatch.
-// The item description and custom values are trimmed and capped at 255 runes.
-// A non-blank custom integer must be decimal digits with an optional sign.
+// Form values use CRLF line breaks to match browser submission. The item
+// description and custom strings are capped at 255 runes. A non-blank custom
+// integer must be decimal digits with an optional minus sign, at most 255 characters.
 func (g *Gateway) Handover(r payment.Request) (payment.Handover, error) {
 	if r.Currency != Currency {
 		return payment.Handover{}, fmt.Errorf("%w, not %s", ErrCurrency, r.Currency)
@@ -250,6 +254,17 @@ func (g *Gateway) Handover(r payment.Request) (payment.Handover, error) {
 
 	fields := make([]payment.Field, 0, 12)
 	add := func(name, value string) {
+		// Browsers convert all line breaks in form values to CRLF before
+		// submission. Sign that same value, with limits applied after conversion.
+		value = formLineBreaks.Replace(value)
+		switch {
+		case name == "item_name":
+			value = truncate(value, itemNameMaxLen)
+		case name == "item_description" || strings.HasPrefix(name, "custom_str"):
+			value = truncateRunes(value, optionalFieldMaxRunes)
+		}
+		// Truncation may expose trailing whitespace, including a CR from a
+		// CRLF pair at the cut. Drop it rather than send half a line break.
 		if value = strings.TrimSpace(value); value != "" {
 			fields = append(fields, payment.Field{Name: name, Value: value})
 		}
@@ -267,21 +282,24 @@ func (g *Gateway) Handover(r payment.Request) (payment.Handover, error) {
 	// with the payment it started.
 	add("m_payment_id", r.Reference)
 	add("amount", payment.FormatAmount(r.AmountCents))
-	add("item_name", truncate(r.ItemName, itemNameMaxLen))
-	add("item_description", truncateRunes(r.ItemDescription, optionalFieldMaxRunes))
+	add("item_name", r.ItemName)
+	add("item_description", r.ItemDescription)
 	for i, value := range r.CustomInt {
-		value = strings.TrimSpace(value)
-		if value == "" {
+		integer := strings.TrimSpace(value)
+		if integer == "" {
 			continue
 		}
 		name := fmt.Sprintf("custom_int%d", i+1)
-		if !isDecimalInteger(value) {
+		if !isDecimalInteger(integer) {
 			return payment.Handover{}, fmt.Errorf("payfast: %s must be a decimal integer", name)
 		}
-		add(name, truncateRunes(value, optionalFieldMaxRunes))
+		if len(integer) > optionalFieldMaxRunes {
+			return payment.Handover{}, fmt.Errorf("payfast: %s exceeds %d characters", name, optionalFieldMaxRunes)
+		}
+		add(name, value)
 	}
 	for i, value := range r.CustomStr {
-		if value = truncateRunes(value, optionalFieldMaxRunes); value != "" {
+		if value != "" {
 			add(fmt.Sprintf("custom_str%d", i+1), value)
 		}
 	}
@@ -376,9 +394,7 @@ func truncateRunes(s string, max int) string {
 // Check the decimal spelling without imposing a machine-integer range. PayFast
 // carries the value as text, and its limit is a character count.
 func isDecimalInteger(s string) bool {
-	if s != "" && (s[0] == '+' || s[0] == '-') {
-		s = s[1:]
-	}
+	s, _ = strings.CutPrefix(s, "-")
 	for i := 0; i < len(s); i++ {
 		if s[i] < '0' || s[i] > '9' {
 			return false
