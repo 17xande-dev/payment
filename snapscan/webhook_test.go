@@ -324,14 +324,25 @@ func TestParseCallback_RejectsMalformedBodies(t *testing.T) {
 			}
 		})
 	}
+}
 
-	// Oversized, checked before anything is parsed.
-	big := make([]byte, MaxBodyBytes+1)
-	for i := range big {
-		big[i] = 'a'
+func TestParseCallback_RejectsOversizedSignedBody(t *testing.T) {
+	base, calls := apiSaying(t, http.StatusOK, paymentJSON(nil))
+	g := gatewayTalkingTo(t, base, nil)
+	// An extra form key makes the otherwise valid webhook too large without
+	// changing the payload that would be confirmed by the merchant API.
+	body := []byte(url.Values{
+		"payload": {jsonString(t, paymentJSON(nil))},
+		"extra":   {strings.Repeat("x", MaxBodyBytes)},
+	}.Encode())
+	if len(body) <= MaxBodyBytes {
+		t.Fatalf("fixture has %d bytes, must exceed %d", len(body), MaxBodyBytes)
 	}
-	if _, err := g.ParseCallback(t.Context(), signed(big, "test-webhook-key")); !errors.Is(err, ErrMalformed) {
-		t.Errorf("ParseCallback on an oversized body: %v, want %v", err, ErrMalformed)
+	if _, err := g.ParseCallback(t.Context(), signed(body, "test-webhook-key")); !errors.Is(err, ErrMalformed) {
+		t.Errorf("oversized signed webhook: error = %v, want ErrMalformed", err)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("oversized signed webhook reached the SnapScan API %d time(s)", len(*calls))
 	}
 }
 

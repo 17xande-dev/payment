@@ -38,8 +38,8 @@ import (
 // MaxBodyBytes caps a notification. PayFast's are well under a kilobyte; the
 // limit exists because the callback route is unauthenticated until ParseCallback
 // has run, and an unauthenticated endpoint must not be persuadable into buffering
-// megabytes. The handler applies the same limit while reading, so the cap is
-// enforced before the bytes are held rather than after.
+// megabytes. Callers should apply the same limit when reading the request body
+// so oversized bodies are not buffered in the first place.
 const MaxBodyBytes = 64 << 10
 
 // itnFields are the PayFast field names the library reads.

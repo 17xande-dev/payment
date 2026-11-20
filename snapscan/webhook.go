@@ -92,9 +92,8 @@ func (g *Gateway) ParseCallback(ctx context.Context, n payment.Notification) (pa
 
 	return payment.Callback{
 		Reference: confirmed.MerchantReference,
-		// SnapScan's payment id is an integer; everything downstream keys on
-		// strings, and the unique index on (gateway, gateway_ref) does not care
-		// which.
+		// Normalise SnapScan's numeric payment ID to a string so callers can
+		// key idempotency on the gateway name and Ref across providers.
 		Ref:         fmt.Sprintf("%d", confirmed.ID),
 		Status:      confirmed.Status,
 		Outcome:     outcome(confirmed.Status),

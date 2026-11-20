@@ -98,6 +98,17 @@ func TestPayFast_SignatureMatchesKnownVector(t *testing.T) {
 	if last.Value != wantDigest {
 		t.Errorf("submitted signature = %s, want %s", last.Value, wantDigest)
 	}
+
+	t.Run("trailing newline in passphrase", func(t *testing.T) {
+		g := testGateway(t, func(c *Config) { c.Passphrase += "\n" })
+		h, err := g.Handover(testRequest())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := h.Fields[len(h.Fields)-1].Value; got != wantDigest {
+			t.Errorf("submitted signature = %s, want %s", got, wantDigest)
+		}
+	})
 }
 
 func TestPayFast_SignatureOrderIsSubmissionOrderNotAlphabetical(t *testing.T) {

@@ -111,6 +111,51 @@ func TestITN_ValidNotification(t *testing.T) {
 	}
 }
 
+func TestITN_AcceptsUppercaseSignature(t *testing.T) {
+	validate, received := validatorSaying(t, "VALID")
+	g := testGateway(t, func(c *Config) { c.ValidateURL = validate })
+	fields := itnFieldsFor("3f2504e0-4f89-41d3-9a0c-0305e82c3301", "299.00")
+	body := encodeITN(fields, g.cfg.Passphrase)
+	prefix, signature, ok := strings.Cut(string(body), "&signature=")
+	upper := strings.ToUpper(signature)
+	if !ok || signature == upper {
+		t.Fatalf("fixture has no signature with lowercase hex digits: %q", signature)
+	}
+	body = []byte(prefix + "&signature=" + upper)
+
+	cb, err := g.ParseCallback(t.Context(), notify(body, validIP))
+	if err != nil || !cb.Paid() {
+		t.Fatalf("uppercase signature: paid = %v, error = %v", cb.Paid(), err)
+	}
+	if *received != string(body) {
+		t.Error("validation did not receive the original uppercase signature")
+	}
+}
+
+func TestITN_RejectsOversizedSignedBody(t *testing.T) {
+	validate, received := validatorSaying(t, "VALID")
+	g := testGateway(t, func(c *Config) { c.ValidateURL = validate })
+	fields := itnFieldsFor("3f2504e0-4f89-41d3-9a0c-0305e82c3301", "299.00")
+	// Padding a recognised form field keeps the notification valid apart
+	// from its size, so parsing and signature checks cannot mask a missing cap.
+	for i := range fields {
+		if fields[i].Name == "custom_str1" {
+			fields[i].Value = strings.Repeat("x", MaxBodyBytes)
+		}
+	}
+	body := encodeITN(fields, g.cfg.Passphrase)
+	if len(body) <= MaxBodyBytes {
+		t.Fatalf("fixture has %d bytes, must exceed %d", len(body), MaxBodyBytes)
+	}
+
+	if _, err := g.ParseCallback(t.Context(), notify(body, validIP)); !errors.Is(err, ErrMalformed) {
+		t.Errorf("oversized signed ITN: error = %v, want ErrMalformed", err)
+	}
+	if *received != "" {
+		t.Error("oversized signed ITN reached the PayFast validation server")
+	}
+}
+
 func TestITN_TemporaryVerificationFailureCanRetry(t *testing.T) {
 	for _, code := range []int{http.StatusTooManyRequests, http.StatusServiceUnavailable} {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -214,7 +259,10 @@ func TestITN_RejectsUnknownIP(t *testing.T) {
 	g := testGateway(t, func(c *Config) { c.ValidateURL = validate })
 	body := encodeITN(itnFieldsFor("3f2504e0-4f89-41d3-9a0c-0305e82c3301", "299.00"), g.cfg.Passphrase)
 
-	for _, ip := range []string{"198.51.100.7", "197.97.145.143", "197.97.145.160", "", "not-an-ip"} {
+	for _, ip := range []string{
+		"198.51.100.7", "197.97.145.143", "197.97.145.160", "", "not-an-ip",
+		"197.97.145.150:4711", "[::ffff:197.97.145.150]:1",
+	} {
 		if _, err := g.ParseCallback(t.Context(), notify(body, ip)); !errors.Is(err, ErrSourceIP) {
 			t.Errorf("source IP %q: error = %v, want ErrSourceIP", ip, err)
 		}
@@ -228,8 +276,8 @@ func TestITN_RejectsUnknownIP(t *testing.T) {
 	}
 }
 
-// A caller behind a trusted proxy may receive a forwarded address with a port.
-// Resolving it to a bare IP must neither reject PayFast nor admit another IP.
+// This documents the caller's job: resolve trusted forwarded addresses to a
+// bare IP before passing SourceIP. PayFast verification does not strip ports.
 func TestITN_SourceCheckAcceptsPortedForwardedAddresses(t *testing.T) {
 	validate, _ := validatorSaying(t, "VALID")
 	g := testGateway(t, func(c *Config) { c.ValidateURL = validate })
