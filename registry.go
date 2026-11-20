@@ -3,6 +3,7 @@ package payment
 import (
 	"errors"
 	"fmt"
+	"slices"
 )
 
 // ErrUnknownGateway is returned by Registry.Lookup for a name no configured
@@ -65,17 +66,22 @@ func (r Registry) Len() int { return len(r.gateways) }
 func (r Registry) Default() Gateway { return r.gateways[0] }
 
 // CSP collects what every configured gateway needs the Content-Security-Policy
-// to permit. Directives nothing asks for come back empty rather than as a list
-// of blanks, so a checkout without a QR gateway gets no extra img-src entry.
+// to permit. Each list contains non-empty origins in first-seen order.
+// Within a gateway, FormAction comes before any additional FormActions.
 func (r Registry) CSP() (formActions, imgSources []string) {
+	add := func(origins []string, origin string) []string {
+		if origin == "" || slices.Contains(origins, origin) {
+			return origins
+		}
+		return append(origins, origin)
+	}
 	for _, g := range r.gateways {
 		c := g.CSP()
-		if c.FormAction != "" {
-			formActions = append(formActions, c.FormAction)
+		formActions = add(formActions, c.FormAction)
+		for _, origin := range c.FormActions {
+			formActions = add(formActions, origin)
 		}
-		if c.ImgSrc != "" {
-			imgSources = append(imgSources, c.ImgSrc)
-		}
+		imgSources = add(imgSources, c.ImgSrc)
 	}
 	return formActions, imgSources
 }

@@ -248,8 +248,8 @@ func TestCSP_NamesTheImageOriginOnly(t *testing.T) {
 		t.Errorf("img-src %q carries a path", c.ImgSrc)
 	}
 	// A link is a top-level navigation, which form-action does not govern.
-	if c.FormAction != "" {
-		t.Errorf("form-action = %q, want nothing: this gateway posts no form", c.FormAction)
+	if c.FormAction != "" || len(c.FormActions) != 0 {
+		t.Errorf("form-action = %q, %q, want nothing: this gateway posts no form", c.FormAction, c.FormActions)
 	}
 }
 

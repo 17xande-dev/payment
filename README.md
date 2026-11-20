@@ -33,6 +33,12 @@ as hidden fields **in the order returned** and POST them to `Handover.Action`.
 Reordering fields changes the signature. Use matching sandbox credentials with
 `Sandbox: true`; a live integration also needs the matching live passphrase.
 
+Live PayFast responds to the signed POST at `https://www.payfast.co.za/eng/process`
+with a `302` to `https://payment.payfast.io/eng/process/payment/<uuid>`. Chromium
+enforces `form-action` on that redirect too, so the handover page must allow both
+origins. The module lists the exact checkout host, not a wildcard for unrelated
+subdomains. Sandbox currently needs only `https://sandbox.payfast.co.za`.
+
 PayFast specifies the transaction field order: `m_payment_id`, `amount`,
 `item_name`, `item_description`, `custom_int1` through `custom_int5`, then
 `custom_str1` through `custom_str5`. The handover signs and submits the fields
@@ -80,8 +86,12 @@ handover, err := gateway.Handover(payment.Request{
 ```
 
 Amounts are integer cents, not floats. `gateway.CSP()` gives the exact origins
-the browser needs for `form-action` or `img-src`; a `payment.Registry` combines
-these when more than one gateway is enabled.
+the browser needs: `CSPOrigins.FormAction` is the initial form POST origin,
+`CSPOrigins.FormActions` lists any additional origins (such as the live PayFast
+redirect), and `CSPOrigins.ImgSrc` is the image origin. If you build a policy
+directly from `gateway.CSP()`, allow both form fields, omitting empty values.
+`Registry.CSP()` already combines and de-duplicates them in its first result,
+even for a registry with one gateway.
 
 `payment.Request` also accepts `ItemDescription string` for a longer purchase
 description and `CustomInt [5]string` and `CustomStr [5]string` for pass-through

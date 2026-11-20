@@ -100,15 +100,16 @@ func (h Handover) IsLink() bool { return h.Kind == HandoverLink }
 // It is part of the interface, rather than configuration somebody has to
 // remember to set, because a gateway whose origin is missing from the policy has
 // its hand-over refused by the browser — silently, with a correct-looking page
-// and a green test suite. Values are scheme+host and never carry a path: a CSP
-// source with a path is an exact match, so a trailing path segment refuses
-// everything beneath it. Empty means the gateway needs nothing from that
-// directive.
+// and a green test suite. Values are scheme+host with no paths or wildcards.
+// Empty means the gateway needs nothing from that field.
 type CSPOrigins struct {
-	// FormAction is the origin a redirect form posts to.
+	// FormAction is the origin the handover form initially posts to.
 	FormAction string
 	// ImgSrc is the origin an image is loaded from — a hosted QR code.
 	ImgSrc string
+	// FormActions holds additional origins that form-action must allow,
+	// such as a hosted checkout reached by redirecting the form submission.
+	FormActions []string
 }
 
 // Notification is one asynchronous callback as it arrived, before anything has

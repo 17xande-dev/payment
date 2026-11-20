@@ -2,6 +2,7 @@ package payment
 
 import (
 	"errors"
+	"slices"
 	"testing"
 )
 
@@ -84,6 +85,44 @@ func TestRegistry_CSPCollectsOnlyWhatIsAskedFor(t *testing.T) {
 	}
 	if _, images := only.CSP(); len(images) != 0 {
 		t.Errorf("img-src = %q for a gateway that loads no images", images)
+	}
+}
+
+type cspGateway struct {
+	Gateway
+	origins CSPOrigins
+}
+
+func (g cspGateway) CSP() CSPOrigins { return g.origins }
+
+func TestRegistry_CSPDeduplicatesInFirstSeenOrder(t *testing.T) {
+	const (
+		first  = "https://z.example"
+		shared = "https://m.example"
+		last   = "https://a.example"
+		image  = "https://qr.example"
+	)
+	a := cspGateway{NewFakeNamed("a", "A"), CSPOrigins{
+		FormAction: first, FormActions: []string{shared, "", first, shared}, ImgSrc: image,
+	}}
+	b := cspGateway{NewFakeNamed("b", "B"), CSPOrigins{
+		FormAction: shared, FormActions: []string{last, first}, ImgSrc: image,
+	}}
+	for _, tc := range []struct {
+		gateways []Gateway
+		want     []string
+	}{
+		{[]Gateway{a, b}, []string{first, shared, last}},
+		{[]Gateway{b, a}, []string{shared, last, first}},
+	} {
+		r, err := NewRegistry(tc.gateways...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		forms, images := r.CSP()
+		if !slices.Equal(forms, tc.want) || !slices.Equal(images, []string{image}) {
+			t.Errorf("CSP = %q, %q; want %q, [%q]", forms, images, tc.want, image)
+		}
 	}
 }
 

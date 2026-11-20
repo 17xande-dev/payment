@@ -3,6 +3,7 @@ package payfast
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -46,6 +47,26 @@ func testRequest() payment.Request {
 		NameFirst:   "Jane",
 		NameLast:    "Doe",
 		Email:       "jane@example.com",
+	}
+}
+
+func TestPayFast_CSP(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		sandbox    bool
+		formAction string
+		additional []string
+	}{
+		{"live", false, "https://www.payfast.co.za", []string{"https://payment.payfast.io"}},
+		{"sandbox", true, "https://sandbox.payfast.co.za", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := testGateway(t, func(cfg *Config) { cfg.Sandbox = tc.sandbox }).CSP()
+			if c.FormAction != tc.formAction || !slices.Equal(c.FormActions, tc.additional) || c.ImgSrc != "" {
+				t.Errorf("CSP = %+v, want initial origin %q, additional origins %q and no image origin",
+					c, tc.formAction, tc.additional)
+			}
+		})
 	}
 }
 

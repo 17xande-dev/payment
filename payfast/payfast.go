@@ -226,10 +226,17 @@ func (g *Gateway) Label() string { return "Card, EFT or Instant EFT (PayFast)" }
 
 func (g *Gateway) Currency() string { return Currency }
 
-// CSP: the hand-over is a real cross-origin form post, so PayFast's origin has to
-// be in form-action or the browser blocks the submit. It loads no images.
+// CSP reports the form POST origin and any additional checkout origin.
 func (g *Gateway) CSP() payment.CSPOrigins {
-	return payment.CSPOrigins{FormAction: g.origin}
+	c := payment.CSPOrigins{FormAction: g.origin}
+	if !g.cfg.Sandbox {
+		// Live PayFast redirects the signed POST to its hosted checkout.
+		// Chromium applies form-action to that redirect as well as the POST.
+		c.FormActions = []string{"https://payment.payfast.io"}
+	}
+	// Sandbox currently answers on its POST origin; there is no known redirect
+	// origin to allow.
+	return c
 }
 
 // Handover returns PayFast's process URL and the fields to post to it.
