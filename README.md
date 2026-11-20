@@ -4,6 +4,19 @@ PayFast and SnapScan for Go applications, behind one `payment.Gateway`
 interface. The module uses only the standard library. The caller owns payment
 records and decides what to do once a payment is confirmed.
 
+## v0.2.2
+
+PayFast notifications now also match IP addresses from PayFast's official
+notification hostnames. The default static list adds the observed fallback
+`13.245.74.88/32`.
+
+### Compatibility notes
+
+The gateway API and `ErrSourceIP` are unchanged. `payfast.Config.SourceHosts`
+and `payfast.Config.Resolver` are new optional fields; existing keyed literals
+need no edits. If you rely on `AllowedCIDRs` as an exclusive allowlist, set
+`SourceHosts: []string{}` to keep static-only checking.
+
 ## v0.2.1
 
 Live PayFast's CSP declaration now includes the hosted checkout redirect.
@@ -64,6 +77,29 @@ PayFast's server-to-server confirmation, and the merchant ID. Pass a bare IP
 address in `payment.Notification.SourceIP`. The caller, not the library, decides
 which proxies and forwarding headers it trusts. Never take a forwarding header
 at face value. Do not use `AllowAnySourceIP` in production.
+
+The source check accepts an address in the static CIDRs **or** in DNS answers
+for `www.payfast.co.za`, `w1w.payfast.co.za`, and `w2w.payfast.co.za` in live
+mode, or `sandbox.payfast.co.za` in sandbox mode. PayFast's published IP table
+is incomplete; the official hostname DNS check is authoritative for current
+notification addresses. The static CIDRs remain valid fallbacks and a static
+match never triggers DNS.
+
+Each gateway caches the DNS answers for five minutes. Concurrent cache misses
+share one refresh, with a two-second timeout for all lookups. If any lookup
+fails, the gateway discards the refresh and waits five minutes before retrying.
+The check fails closed to the static list and any last-known-good DNS answers
+less than one hour old; a failed refresh cannot admit a new address or extend
+that limit. Private, loopback, link-local, unspecified, and multicast DNS
+answers are ignored.
+
+- `AllowedCIDRs` replaces the static list when non-empty; an empty list uses
+  `DefaultAllowedCIDRs`.
+- `SourceHosts` replaces the official hostnames when non-nil. Use a non-nil
+  empty slice to disable DNS lookups.
+- `Resolver` defaults to `net.DefaultResolver`. To override it, provide a
+  `payfast.Resolver` implementing `LookupNetIP` and honoring context deadlines
+  and concurrent calls.
 
 ## SnapScan
 

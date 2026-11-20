@@ -3,8 +3,8 @@
 //
 // There is no PayFast SDK for Go, and this package is deliberately not one: it
 // covers exactly two directions — sending a payer to the gateway,
-// and authenticating the notification that comes back — over about three hundred
-// lines of net/http. The spec is at https://developers.payfast.co.za.
+// and authenticating the notification that comes back. The spec is at
+// https://developers.payfast.co.za.
 //
 // # The signature
 //
@@ -63,19 +63,17 @@ const optionalFieldMaxRunes = 255
 // Match CRLF first so an existing pair stays one line break.
 var formLineBreaks = strings.NewReplacer("\r\n", "\r\n", "\r", "\r\n", "\n", "\r\n")
 
-// DefaultAllowedCIDRs are PayFast's published source ranges for notifications,
-// as of 2026-08. They are a *default* and not a constant on purpose: PayFast has
-// changed them before, and the caller can configure the current ranges without
-// waiting for a library release.
-//
-// Verify against https://support.payfast.co.za/portal/en/kb/articles/what-ip-addresses-does-payfast-use
-// when a notification is rejected with ErrSourceIP.
+// DefaultAllowedCIDRs are PayFast's published source ranges for notifications
+// as of 2026-08, plus observed fallbacks. PayFast's published ranges are
+// incomplete; see Config.SourceHosts for the DNS check.
 var DefaultAllowedCIDRs = []string{
 	"197.97.145.144/28",
 	"41.74.179.192/27",
 	"102.216.36.0/28",
 	"102.216.36.128/28",
 	"144.126.193.139/32",
+	// Observed in DNS answers for w1w.payfast.co.za and w2w.payfast.co.za on 2026-11-20.
+	"13.245.74.88/32",
 }
 
 // Errors from ParseCallback. Each names one failed check, so the rejection log
@@ -109,15 +107,17 @@ type Config struct {
 	CancelURL string
 	NotifyURL string
 
-	// AllowedCIDRs restricts where a notification may come from. Empty means
-	// DefaultAllowedCIDRs.
+	// AllowedCIDRs is the static source-IP allowlist. Empty means
+	// DefaultAllowedCIDRs. A source may also match a SourceHosts answer.
 	AllowedCIDRs []string
-	// AllowAnySourceIP disables the source-IP check. It exists because the
-	// sandbox does not necessarily notify from the published production ranges,
-	// so testing against it otherwise fails on a check that is not the one being
-	// tested. It is logged loudly at startup, and it is never right in
-	// production: the check is one of the four things standing between a forged
-	// notification and a settled payment.
+	// SourceHosts supplies the hostnames whose DNS answers allow notification
+	// sources. Nil uses PayFast's official hostnames for the selected mode.
+	// An explicitly empty slice disables DNS checks.
+	SourceHosts []string
+	// Resolver looks up SourceHosts. Nil uses net.DefaultResolver.
+	Resolver Resolver
+	// AllowAnySourceIP disables both source-IP checks. It is an escape hatch
+	// for testing, is logged at startup, and should never be used in production.
 	AllowAnySourceIP bool
 
 	// HTTPClient is used for the server-to-server validation call. A nil client
@@ -137,6 +137,7 @@ type Gateway struct {
 	log         *slog.Logger
 	client      *http.Client
 	allowed     []netip.Prefix
+	sources     *sourceDNS
 	processURL  string
 	validateURL string
 	origin      string
@@ -197,6 +198,7 @@ func New(cfg Config) (*Gateway, error) {
 		log:         log,
 		client:      client,
 		allowed:     allowed,
+		sources:     newSourceDNS(cfg),
 		processURL:  origin + "/eng/process",
 		validateURL: origin + "/eng/query/validate",
 		origin:      origin,

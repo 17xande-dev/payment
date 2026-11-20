@@ -22,6 +22,7 @@ func testConfig() Config {
 		ReturnURL:   "https://store.example/cart/checkout/success",
 		CancelURL:   "https://store.example/cart/checkout/cancel",
 		NotifyURL:   "https://store.example/payments/payfast/callback",
+		Resolver:    &fakeSourceResolver{},
 	}
 }
 

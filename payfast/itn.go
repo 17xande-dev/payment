@@ -32,8 +32,8 @@ import (
 // by anyone who has the passphrase; the source IP by anyone who can spoof it or
 // sits behind the same proxy; the server-to-server check proves the data is
 // PayFast's but not that it was meant for us. Together they are the standard
-// PayFast validation, and this order puts the cheap local checks before the
-// network call.
+// PayFast validation, and this order checks the signature before contacting DNS
+// or the validation endpoint.
 
 // MaxBodyBytes caps a notification. PayFast's are well under a kilobyte; the
 // limit exists because the callback route is unauthenticated until ParseCallback
@@ -87,7 +87,7 @@ func (g *Gateway) ParseCallback(ctx context.Context, n payment.Notification) (pa
 	}
 
 	// 2. Source IP.
-	if err := g.checkSourceIP(sourceIP); err != nil {
+	if err := g.checkSourceIP(ctx, sourceIP); err != nil {
 		return payment.Callback{}, err
 	}
 
@@ -172,9 +172,8 @@ func field(fields []payment.Field, name string) string {
 	return ""
 }
 
-// checkSourceIP compares the notification's source against PayFast's published
-// ranges.
-func (g *Gateway) checkSourceIP(sourceIP string) error {
+// checkSourceIP checks static ranges before consulting DNS.
+func (g *Gateway) checkSourceIP(ctx context.Context, sourceIP string) error {
 	if g.cfg.AllowAnySourceIP {
 		return nil
 	}
@@ -184,13 +183,17 @@ func (g *Gateway) checkSourceIP(sourceIP string) error {
 		return fmt.Errorf("%w: %q is not an IP address", ErrSourceIP, sourceIP)
 	}
 	// An IPv4 address arriving as ::ffff:a.b.c.d would match no IPv4 prefix.
-	addr = addr.Unmap()
+	addr = addr.Unmap().WithZone("")
 
 	for _, p := range g.allowed {
 		if p.Contains(addr) {
 			return nil
 		}
 	}
+	if g.sources != nil && g.sources.contains(ctx, addr) {
+		return nil
+	}
+	g.log.DebugContext(ctx, "payfast: rejected notification source", "source_ip", addr.String())
 	return fmt.Errorf("%w: %s", ErrSourceIP, addr)
 }
 
